@@ -1,9 +1,7 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:notes_app/config/theme/app_theme.dart';
-import 'package:notes_app/features/auth/auth_provider.dart';
 import 'package:notes_app/features/note_editor/note_editor_provider.dart';
 import 'package:notes_app/features/note_editor/editor_widgets.dart';
 import 'package:notes_app/core/services/permission_service.dart';
