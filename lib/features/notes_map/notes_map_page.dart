@@ -6,6 +6,9 @@ import 'package:notes_app/config/theme/app_theme.dart';
 import 'package:notes_app/core/constants/app_constants.dart';
 import 'package:notes_app/features/auth/auth_provider.dart';
 import 'package:notes_app/features/notes_map/notes_map_provider.dart';
+import 'package:notes_app/features/notes_map/note_location_cluster.dart';
+import 'package:notes_app/features/notes_map/notes_at_location_bottom_sheet.dart';
+import 'package:notes_app/models/note.dart';
 
 /// Notes map page
 class NotesMapPage extends StatefulWidget {
@@ -18,20 +21,17 @@ class NotesMapPage extends StatefulWidget {
 }
 
 class _NotesMapPageState extends State<NotesMapPage> {
-  late MapController _mapController;
-  List<Marker> _markers = [];
+  late final MapController _mapController;
+  late NotesMapNotifier _notesMapNotifier;
 
   @override
   void initState() {
     super.initState();
     _mapController = MapController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authState = context.read<AuthStateNotifier>();
-      if (authState.currentUser != null) {
-        context.read<NotesMapNotifier>().initializeNotes(
-          authState.currentUser!.uid,
-        );
-      }
+      // Initialize map notes - no userId needed, FirebaseAuth is used internally
+      _notesMapNotifier = context.read<NotesMapNotifier>();
+      _notesMapNotifier.initializeNotes();
     });
   }
 
@@ -41,50 +41,44 @@ class _NotesMapPageState extends State<NotesMapPage> {
     super.dispose();
   }
 
-  void _updateMarkers(List<dynamic> notes) {
-    _markers = [];
-
-    for (var note in notes) {
-      final marker = Marker(
-        point: LatLng(note.latitude, note.longitude),
-        width: 40,
-        height: 40,
+  /// Build markers from clusters - efficient list generation
+  List<Marker> _buildMarkers(List<NoteLocationCluster> clusters) {
+    return clusters.map((cluster) {
+      return Marker(
+        point: cluster.point,
+        width: 50,
+        height: 50,
         child: GestureDetector(
           onTap: () {
-            widget.onMarkerTapped?.call(note.id);
-            _showNotePopup(note);
+            if (cluster.isSingleNote) {
+              // Single note: show popup dialog
+              widget.onMarkerTapped?.call(cluster.notes[0].id);
+              _showNotePopup(cluster.notes[0]);
+            } else {
+              // Multiple notes: show bottom sheet
+              NotesAtLocationBottomSheet.show(
+                context,
+                notes: cluster.notes,
+                onNoteTapped: widget.onMarkerTapped,
+              );
+            }
           },
-          child: Tooltip(
-            message: note.title,
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppTheme.primaryColor,
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 2),
-              ),
-              child: const Icon(
-                Icons.location_on,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-          ),
+          child: _NoteMarkerWidget(cluster: cluster),
         ),
       );
-      _markers.add(marker);
-    }
-
-    setState(() {});
+    }).toList();
   }
 
-  void _showNotePopup(dynamic note) {
+  void _showNotePopup(Note note) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: Text(note.title),
+          title: Text(note.title.isEmpty ? 'Untitled Note' : note.title),
           content: Text(
-            note.body.length > 100
+            note.body.isEmpty
+                ? 'No description'
+                : note.body.length > 100
                 ? '${note.body.substring(0, 100)}...'
                 : note.body,
           ),
@@ -114,20 +108,30 @@ class _NotesMapPageState extends State<NotesMapPage> {
         elevation: 0,
         centerTitle: true,
       ),
-      body: Consumer<NotesMapNotifier>(
-        builder: (context, notesMapProvider, _) {
-          // Update markers when notes change
-          if (notesMapProvider.notes.isNotEmpty) {
-            Future.microtask(() => _updateMarkers(notesMapProvider.notes));
-          }
+      body: Selector<NotesMapNotifier, (List<Note>, bool, String?)>(
+        selector: (context, provider) => (
+          provider.notes,
+          provider.isLoading && provider.isEmpty,
+          provider.errorMessage,
+        ),
+        builder: (context, state, _) {
+          final (notes, isLoading, errorMessage) = state;
+
+          // Cluster and build markers only when notes change
+          final clusters = notes.isNotEmpty
+              ? LocationClusteringService.clusterNotesByLocation(notes)
+              : <NoteLocationCluster>[];
+          final markers = clusters.isNotEmpty
+              ? _buildMarkers(clusters)
+              : <Marker>[];
 
           // Loading state
-          if (notesMapProvider.isLoading && notesMapProvider.isEmpty) {
+          if (isLoading) {
             return const Center(child: CircularProgressIndicator());
           }
 
           // Error state
-          if (notesMapProvider.errorMessage != null) {
+          if (errorMessage != null) {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(AppTheme.spacingLg),
@@ -147,7 +151,7 @@ class _NotesMapPageState extends State<NotesMapPage> {
                     ),
                     const SizedBox(height: AppTheme.spacingSm),
                     Text(
-                      notesMapProvider.errorMessage ?? 'Unknown error',
+                      errorMessage,
                       style: AppTheme.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
@@ -156,9 +160,7 @@ class _NotesMapPageState extends State<NotesMapPage> {
                       onPressed: () {
                         final authState = context.read<AuthStateNotifier>();
                         if (authState.currentUser != null) {
-                          context.read<NotesMapNotifier>().initializeNotes(
-                            authState.currentUser!.uid,
-                          );
+                          context.read<NotesMapNotifier>().initializeNotes();
                         }
                       },
                       child: const Text('Retry'),
@@ -186,12 +188,12 @@ class _NotesMapPageState extends State<NotesMapPage> {
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.notes_app',
               ),
-              MarkerLayer(markers: _markers),
-              RichAttributionWidget(
+              MarkerLayer(markers: markers),
+              const RichAttributionWidget(
                 attributions: [
                   TextSourceAttribution(
                     'OpenStreetMap contributors',
-                    onTap: () {},
+                    onTap: null,
                   ),
                 ],
               ),
@@ -213,7 +215,7 @@ class _NotesMapPageState extends State<NotesMapPage> {
             },
             child: const Icon(Icons.add),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           FloatingActionButton(
             heroTag: 'zoom_out',
             mini: true,
@@ -225,7 +227,7 @@ class _NotesMapPageState extends State<NotesMapPage> {
             },
             child: const Icon(Icons.remove),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           FloatingActionButton(
             heroTag: 'center_map',
             mini: true,
@@ -243,5 +245,60 @@ class _NotesMapPageState extends State<NotesMapPage> {
         ],
       ),
     );
+  }
+}
+
+/// Const widget for marker UI to prevent unnecessary rebuilds
+class _NoteMarkerWidget extends StatelessWidget {
+  final NoteLocationCluster cluster;
+
+  const _NoteMarkerWidget({required this.cluster});
+
+  @override
+  Widget build(BuildContext context) {
+    if (cluster.isSingleNote) {
+      return Tooltip(
+        message: cluster.notes[0].title.isEmpty
+            ? 'Untitled Note'
+            : cluster.notes[0].title,
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppTheme.primaryColor,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+          ),
+          child: const Icon(Icons.location_on, color: Colors.white, size: 20),
+        ),
+      );
+    } else {
+      // Cluster marker with note count
+      final color = LocationClusteringService.getClusterColor(
+        cluster.notes.length,
+      );
+      return Container(
+        decoration: BoxDecoration(
+          color: Color(color),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: Color(color).withValues(alpha: 0.5),
+              blurRadius: 4,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            cluster.notes.length.toString(),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+            ),
+          ),
+        ),
+      );
+    }
   }
 }

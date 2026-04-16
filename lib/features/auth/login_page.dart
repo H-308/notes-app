@@ -39,6 +39,8 @@ class _LoginPageState extends State<LoginPage> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+      // RootApp StreamBuilder automatically handles transition to MainScreen
+      // when auth state changes. The flag in MainScreen prevents dialog duplication.
     }
   }
 

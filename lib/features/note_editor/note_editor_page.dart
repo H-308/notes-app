@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,8 @@ import 'package:notes_app/config/theme/app_theme.dart';
 import 'package:notes_app/features/auth/auth_provider.dart';
 import 'package:notes_app/features/note_editor/note_editor_provider.dart';
 import 'package:notes_app/features/note_editor/editor_widgets.dart';
+import 'package:notes_app/core/services/permission_service.dart';
+import 'package:notes_app/core/services/image_compression_service.dart';
 
 /// Note editor page for creating and editing notes
 class NoteEditorPage extends StatefulWidget {
@@ -21,7 +24,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   late TextEditingController _titleController;
   late TextEditingController _bodyController;
   final _formKey = GlobalKey<FormState>();
-  String? _selectedImagePath;
+  String? _selectedImageBase64;
 
   @override
   void initState() {
@@ -31,15 +34,12 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final editorProvider = context.read<NoteEditorNotifier>();
+
       editorProvider.reset();
 
-      final authState = context.read<AuthStateNotifier>();
-
-      if (widget.noteId != null && authState.currentUser != null) {
-        // Load existing note
-        editorProvider.loadNote(authState.currentUser!.uid, widget.noteId!);
+      if (widget.noteId != null) {
+        editorProvider.loadNote(widget.noteId!);
       } else {
-        // Initialize for new note
         editorProvider.initializeForNewNote();
       }
     });
@@ -49,6 +49,7 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final editorProvider = context.watch<NoteEditorNotifier>();
+
     if (editorProvider.currentNote != null) {
       _titleController.text = editorProvider.currentNote!.title;
       _bodyController.text = editorProvider.currentNote!.body;
@@ -56,36 +57,218 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
   }
 
   Future<void> _pickImage() async {
-    final ImagePicker picker = ImagePicker();
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Select Image Source'),
+          content: const Text('Choose where to pick the image from:'),
+          actions: [
+            TextButton.icon(
+              icon: const Icon(Icons.photo_library_outlined),
+              label: const Text('Gallery'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _pickImageFromSource(ImageSource.gallery);
+              },
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.camera_alt_outlined),
+              label: const Text('Camera'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _pickImageFromSource(ImageSource.camera);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _pickImageFromSource(ImageSource source) async {
+    final permissionService = PermissionService();
+
     try {
-      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
-      if (image != null) {
-        setState(() {
-          _selectedImagePath = image.path;
-        });
+      // Check permission status first
+      late PermissionStatusResult permissionStatus;
+      if (source == ImageSource.camera) {
+        permissionStatus = await permissionService
+            .checkCameraPermissionStatus();
+      } else {
+        permissionStatus = await permissionService
+            .checkStoragePermissionStatus();
+      }
+
+      // Handle different permission statuses
+      if (permissionStatus == PermissionStatusResult.granted) {
+        await _performImagePick(source);
+      } else if (permissionStatus == PermissionStatusResult.permanentlyDenied) {
+        if (mounted) {
+          _showPermissionPermanentlyDeniedDialog(
+            context,
+            source,
+            permissionService,
+          );
+        }
+      } else {
+        // Permission not granted yet, request it
+        late PermissionStatusResult requestResult;
+        if (source == ImageSource.camera) {
+          requestResult = await permissionService
+              .requestCameraPermissionIfNeeded();
+        } else {
+          requestResult = await permissionService
+              .requestStoragePermissionIfNeeded();
+        }
+
+        if (requestResult == PermissionStatusResult.granted) {
+          if (mounted) {
+            await _performImagePick(source);
+          }
+        } else if (requestResult == PermissionStatusResult.permanentlyDenied) {
+          if (mounted) {
+            _showPermissionPermanentlyDeniedDialog(
+              context,
+              source,
+              permissionService,
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  source == ImageSource.camera
+                      ? 'Camera permission denied'
+                      : 'Gallery permission denied',
+                ),
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error picking image: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error picking image: $e')));
+      }
     }
+  }
+
+  /// Perform the actual image picking and compress to Base64
+  Future<void> _performImagePick(ImageSource source) async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: source);
+
+      if (image != null && mounted) {
+        // Show loading indicator while compressing
+        _showCompressionDialog();
+
+        // Compress image and convert to Base64
+        final imageCompressionService = ImageCompressionService();
+        final base64String = await imageCompressionService
+            .compressImageToBase64(imagePath: image.path, initialQuality: 90);
+
+        if (mounted) {
+          Navigator.of(context).pop(); // Close loading dialog
+
+          setState(() {
+            _selectedImageBase64 = base64String;
+          });
+
+          final sizeKB = imageCompressionService.getBase64SizeInKB(
+            base64String,
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Image compressed and ready (${sizeKB.toStringAsFixed(1)}KB)',
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog if still open
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error processing image: $e')));
+      }
+    }
+  }
+
+  /// Show compression progress dialog
+  void _showCompressionDialog() {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              const Text('Compressing image...'),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Show dialog when permission is permanently denied
+  void _showPermissionPermanentlyDeniedDialog(
+    BuildContext context,
+    ImageSource source,
+    PermissionService permissionService,
+  ) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        final title = source == ImageSource.camera
+            ? 'Camera Access Required'
+            : 'Gallery Access Required';
+        final message = source == ImageSource.camera
+            ? 'Camera permission is permanently denied. '
+                  'Please enable it in app settings to take photos for your notes.'
+            : 'Gallery permission is permanently denied. '
+                  'Please enable it in app settings to add images from your device.';
+
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                permissionService.openAppSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _handleSave() {
     if (_formKey.currentState!.validate()) {
-      final authState = context.read<AuthStateNotifier>();
-      if (authState.currentUser == null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('User not authenticated')));
-        return;
-      }
-
+      // Save note - userId is retrieved from Firebase Auth internally
       context.read<NoteEditorNotifier>().saveNote(
-        userId: authState.currentUser!.uid,
         title: _titleController.text,
         body: _bodyController.text,
-        imageUrl: _selectedImagePath,
+        imageBase64: _selectedImageBase64,
       );
 
       widget.onSave?.call();
@@ -95,9 +278,8 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
 
   void _handleDelete() {
     final editorProvider = context.read<NoteEditorNotifier>();
-    final authState = context.read<AuthStateNotifier>();
 
-    if (editorProvider.currentNote == null || authState.currentUser == null) {
+    if (editorProvider.currentNote == null) {
       return;
     }
 
@@ -114,12 +296,10 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
             ),
             TextButton(
               onPressed: () {
-                editorProvider.deleteNote(
-                  authState.currentUser!.uid,
-                  editorProvider.currentNote!.id,
-                );
-                Navigator.of(context).pop();
-                Navigator.of(context).pop();
+                // Delete note - userId is retrieved from Firebase Auth internally
+                editorProvider.deleteNote(editorProvider.currentNote!.id);
+                Navigator.of(context).pop(); // Close the dialog
+                Navigator.of(context).pop(); // Go back to previous screen
               },
               child: const Text(
                 'Delete',
@@ -148,73 +328,74 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
         centerTitle: true,
         actions: [
           if (widget.noteId != null)
-            Consumer<NoteEditorNotifier>(
-              builder: (context, editorProvider, _) {
+            Selector<NoteEditorNotifier, bool>(
+              selector: (context, provider) => provider.currentNote != null,
+              builder: (context, hasNote, _) {
                 return IconButton(
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: editorProvider.currentNote != null
-                      ? _handleDelete
-                      : null,
+                  onPressed: hasNote ? _handleDelete : null,
                 );
               },
             ),
         ],
       ),
-      body: Consumer<NoteEditorNotifier>(
-        builder: (context, editorProvider, _) {
-          // Loading state
-          if (editorProvider.isLoading && editorProvider.currentNote == null) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          return SingleChildScrollView(
+      body: Stack(
+        children: [
+          SingleChildScrollView(
             padding: const EdgeInsets.all(AppTheme.spacingMd),
             child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Error message
-                  if (editorProvider.errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        bottom: AppTheme.spacingMd,
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.all(AppTheme.spacingMd),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFEBEE),
-                          borderRadius: BorderRadius.circular(
-                            AppTheme.radiusMd,
+                  // Error message - uses Selector for granular update
+                  Selector<NoteEditorNotifier, String?>(
+                    selector: (context, provider) => provider.errorMessage,
+                    builder: (context, errorMessage, _) {
+                      if (errorMessage != null) {
+                        return Padding(
+                          padding: const EdgeInsets.only(
+                            bottom: AppTheme.spacingMd,
                           ),
-                          border: const Border(
-                            left: BorderSide(
-                              color: AppTheme.errorColor,
-                              width: 4,
-                            ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.error_outline,
-                              color: AppTheme.errorColor,
-                              size: 20,
-                            ),
-                            const SizedBox(width: AppTheme.spacingMd),
-                            Expanded(
-                              child: Text(
-                                editorProvider.errorMessage ?? '',
-                                style: const TextStyle(
+                          child: Container(
+                            padding: const EdgeInsets.all(AppTheme.spacingMd),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFEBEE),
+                              borderRadius: BorderRadius.circular(
+                                AppTheme.radiusMd,
+                              ),
+                              border: const Border(
+                                left: BorderSide(
                                   color: AppTheme.errorColor,
-                                  fontSize: 12,
+                                  width: 4,
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.error_outline,
+                                  color: AppTheme.errorColor,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: AppTheme.spacingMd),
+                                Expanded(
+                                  child: Text(
+                                    errorMessage,
+                                    style: const TextStyle(
+                                      color: AppTheme.errorColor,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
 
                   // Title field
                   EditorTextField(
@@ -245,63 +426,97 @@ class _NoteEditorPageState extends State<NoteEditorPage> {
                   ),
                   const SizedBox(height: AppTheme.spacingMd),
 
-                  // Location info
-                  LocationInfoWidget(
-                    latitude: editorProvider.latitude,
-                    longitude: editorProvider.longitude,
-                    isLoading: editorProvider.isLocationLoading,
-                    onRefresh: () {
-                      editorProvider.updateLocation();
+                  // Location info - uses Selector for granular update
+                  Selector<NoteEditorNotifier, (double?, double?, bool)>(
+                    selector: (context, provider) => (
+                      provider.latitude,
+                      provider.longitude,
+                      provider.isLocationLoading,
+                    ),
+                    builder: (context, locationData, _) {
+                      final (latitude, longitude, isLocationLoading) =
+                          locationData;
+                      return LocationInfoWidget(
+                        latitude: latitude,
+                        longitude: longitude,
+                        isLoading: isLocationLoading,
+                        onRefresh: () {
+                          context.read<NoteEditorNotifier>().updateLocation();
+                        },
+                      );
                     },
                   ),
                   const SizedBox(height: AppTheme.spacingMd),
 
-                  // Image section
-                  if (_selectedImagePath != null ||
-                      editorProvider.currentNote?.imageUrl != null)
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        bottom: AppTheme.spacingMd,
-                      ),
-                      child: ImagePreviewWidget(
-                        imageUrl:
-                            _selectedImagePath ??
-                            editorProvider.currentNote?.imageUrl,
-                        onRemove: () {
-                          setState(() {
-                            _selectedImagePath = null;
-                          });
-                        },
-                      ),
-                    ),
+                  // Image section - uses Selector for image updates
+                  Selector<NoteEditorNotifier, String?>(
+                    selector: (context, provider) =>
+                        provider.currentNote?.imageBase64,
+                    builder: (context, noteImageBase64, _) {
+                      if (_selectedImageBase64 != null ||
+                          noteImageBase64 != null) {
+                        return Padding(
+                          padding: const EdgeInsets.only(
+                            bottom: AppTheme.spacingMd,
+                          ),
+                          child: ImagePreviewWidget(
+                            imageBase64:
+                                _selectedImageBase64 ?? noteImageBase64,
+                            onRemove: () {
+                              setState(() {
+                                _selectedImageBase64 = null;
+                              });
+                            },
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
 
-                  // Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ActionButton(
-                          label: 'Add Image',
-                          icon: Icons.image_outlined,
-                          onPressed: _pickImage,
-                          color: AppTheme.secondaryColor,
-                        ),
-                      ),
-                      const SizedBox(width: AppTheme.spacingMd),
-                      Expanded(
-                        child: ActionButton(
-                          label: 'Save',
-                          icon: Icons.save_outlined,
-                          onPressed: _handleSave,
-                          isLoading: editorProvider.isLoading,
-                        ),
-                      ),
-                    ],
+                  // Buttons - uses Selector for loading state
+                  Selector<NoteEditorNotifier, bool>(
+                    selector: (context, provider) => provider.isLoading,
+                    builder: (context, isLoading, _) {
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: ActionButton(
+                              label: 'Add Image',
+                              icon: Icons.image_outlined,
+                              onPressed: _pickImage,
+                              color: AppTheme.secondaryColor,
+                            ),
+                          ),
+                          const SizedBox(width: AppTheme.spacingMd),
+                          Expanded(
+                            child: ActionButton(
+                              label: 'Save',
+                              icon: Icons.save_outlined,
+                              onPressed: _handleSave,
+                              isLoading: isLoading,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),
             ),
-          );
-        },
+          ),
+          // Loading overlay
+          Selector<NoteEditorNotifier, bool>(
+            selector: (context, provider) =>
+                provider.isLoading && provider.currentNote == null,
+            builder: (context, isLoadingNote, _) {
+              if (isLoadingNote) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+        ],
       ),
     );
   }

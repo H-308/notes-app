@@ -1,11 +1,5 @@
 /// Represents the auth state of the application
-enum AuthStatus {
-  initial,
-  authenticated,
-  unauthenticated,
-  loading,
-  error,
-}
+enum AuthStatus { initial, authenticated, unauthenticated, loading, error }
 
 /// Auth user entity
 class AuthUser {
@@ -13,11 +7,7 @@ class AuthUser {
   final String email;
   final String? displayName;
 
-  AuthUser({
-    required this.uid,
-    required this.email,
-    this.displayName,
-  });
+  AuthUser({required this.uid, required this.email, this.displayName});
 
   factory AuthUser.fromFirebaseUser(dynamic firebaseUser) {
     return AuthUser(
@@ -26,4 +16,16 @@ class AuthUser {
       displayName: firebaseUser.displayName,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AuthUser &&
+          runtimeType == other.runtimeType &&
+          uid == other.uid &&
+          email == other.email &&
+          displayName == other.displayName;
+
+  @override
+  int get hashCode => uid.hashCode ^ email.hashCode ^ displayName.hashCode;
 }

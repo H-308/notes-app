@@ -44,6 +44,8 @@ class AuthStateNotifier extends ChangeNotifier {
 
     try {
       await _authRepository.signUp(email: email, password: password);
+      // Wait a moment for Firebase to update the current user
+      await Future.delayed(const Duration(milliseconds: 200));
       _currentUser = _authRepository.getCurrentUser();
       _errorMessage = null;
     } catch (e) {
@@ -62,6 +64,8 @@ class AuthStateNotifier extends ChangeNotifier {
 
     try {
       await _authRepository.signIn(email: email, password: password);
+      // Wait a moment for Firebase to update the current user
+      await Future.delayed(const Duration(milliseconds: 200));
       _currentUser = _authRepository.getCurrentUser();
       _errorMessage = null;
     } catch (e) {

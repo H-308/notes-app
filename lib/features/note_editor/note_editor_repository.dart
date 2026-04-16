@@ -1,6 +1,7 @@
 import 'package:notes_app/models/note.dart';
 
 /// Abstract repository for note editor operations
+/// All methods use the currently authenticated user from Firebase Auth
 abstract class NoteEditorRepository {
   /// Create a new note
   Future<String> createNote(Note note);
@@ -8,9 +9,9 @@ abstract class NoteEditorRepository {
   /// Update an existing note
   Future<void> updateNote(Note note);
 
-  /// Delete a note
-  Future<void> deleteNote(String userId, String noteId);
+  /// Delete a note by ID
+  Future<void> deleteNote(String noteId);
 
   /// Get a note by ID
-  Future<Note?> getNote(String userId, String noteId);
+  Future<Note?> getNote(String noteId);
 }

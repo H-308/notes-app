@@ -1,5 +1,4 @@
-import 'dart:io';
-import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:notes_app/config/theme/app_theme.dart';
 
@@ -25,7 +24,7 @@ class LocationInfoWidget extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFF0F4FF),
         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-        border: Border.all(color: AppTheme.primaryColor.withOpacity(0.2)),
+        border: Border.all(color: AppTheme.primaryColor.withValues(alpha: 0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -75,56 +74,22 @@ class LocationInfoWidget extends StatelessWidget {
 
 /// Image preview widget
 class ImagePreviewWidget extends StatelessWidget {
-  final String? imageUrl;
+  final String? imageBase64;
   final VoidCallback? onRemove;
 
-  const ImagePreviewWidget({super.key, this.imageUrl, this.onRemove});
-
-  bool _isLocalFile(String path) {
-    return !path.startsWith('http://') && !path.startsWith('https://');
-  }
+  const ImagePreviewWidget({super.key, this.imageBase64, this.onRemove});
 
   @override
   Widget build(BuildContext context) {
-    if (imageUrl == null) {
+    if (imageBase64 == null || imageBase64!.isEmpty) {
       return const SizedBox.shrink();
     }
-
-    final isLocal = _isLocalFile(imageUrl!);
 
     return Stack(
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-          child: isLocal
-              ? Image.file(
-                  File(imageUrl!),
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: 200,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      color: Colors.grey[300],
-                      width: double.infinity,
-                      height: 200,
-                      child: const Center(child: Icon(Icons.error)),
-                    );
-                  },
-                )
-              : CachedNetworkImage(
-                  imageUrl: imageUrl!,
-                  placeholder: (context, url) => Container(
-                    color: Colors.grey[300],
-                    child: const Center(child: CircularProgressIndicator()),
-                  ),
-                  errorWidget: (context, url, error) => Container(
-                    color: Colors.grey[300],
-                    child: const Center(child: Icon(Icons.error)),
-                  ),
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: 200,
-                ),
+          child: _buildImageWidget(),
         ),
         if (onRemove != null)
           Positioned(
@@ -144,6 +109,55 @@ class ImagePreviewWidget extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  /// Build the image widget from Base64 string
+  Widget _buildImageWidget() {
+    try {
+      final bytes = base64Decode(imageBase64!);
+      return Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: 200,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            color: Colors.grey[300],
+            width: double.infinity,
+            height: 200,
+            child: const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.image_not_supported_outlined, color: Colors.grey),
+                  SizedBox(height: 8),
+                  Text(
+                    'Failed to load image',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      return Container(
+        color: Colors.grey[300],
+        width: double.infinity,
+        height: 200,
+        child: const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, color: Colors.grey),
+              SizedBox(height: 8),
+              Text('Invalid image data', style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
   }
 }
 

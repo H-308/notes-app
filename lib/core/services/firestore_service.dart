@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:notes_app/core/constants/app_constants.dart';
 
 /// Service for Firestore database operations
+/// CRITICAL: All methods retrieve the UID directly from Firebase Auth
+/// This ensures we always use the currently authenticated user, never stale values
 class FirestoreService {
   static final FirestoreService _instance = FirestoreService._internal();
   final FirebaseFirestore _firebaseFirestore = FirebaseFirestore.instance;
@@ -12,68 +15,74 @@ class FirestoreService {
 
   FirestoreService._internal();
 
-  /// Get notes collection reference for a user
-  CollectionReference<Map<String, dynamic>> getUserNotesCollection(
-    String userId,
-  ) {
+  /// Get the current authenticated user's UID
+  /// Throws if user is not authenticated
+  String _getCurrentUID() {
+    final String? uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      throw Exception('User not authenticated via Firebase');
+    }
+    return uid;
+  }
+
+  /// Get notes collection reference for the currently authenticated user
+  /// Uses internal UID retrieval - never relies on passed parameters
+  CollectionReference<Map<String, dynamic>> _getUserNotesCollection() {
+    final String uid = _getCurrentUID();
+    print("DEBUG: Accessing Firestore path: users/$uid/notes");
     return _firebaseFirestore
         .collection(AppConstants.usersCollection)
-        .doc(userId)
+        .doc(uid)
         .collection(AppConstants.notesCollection);
   }
 
   /// Add a new note
-  Future<String> addNote(
-    String userId,
-    Map<String, dynamic> noteData,
-  ) async {
+  /// Uses currently authenticated user from Firebase Auth
+  Future<void> addNote(Map<String, dynamic> noteData) async {
     try {
-      final docRef = await getUserNotesCollection(userId).add(noteData);
-      return docRef.id;
+      final String noteId = noteData['id'];
+      await _getUserNotesCollection().doc(noteId).set(noteData);
     } catch (e) {
       throw Exception('Failed to add note: ${e.toString()}');
     }
   }
 
   /// Update an existing note
-  Future<void> updateNote(
-    String userId,
-    String noteId,
-    Map<String, dynamic> noteData,
-  ) async {
+  /// Uses currently authenticated user from Firebase Auth
+  Future<void> updateNote(String noteId, Map<String, dynamic> noteData) async {
     try {
-      await getUserNotesCollection(userId).doc(noteId).update(noteData);
+      await _getUserNotesCollection().doc(noteId).update(noteData);
     } catch (e) {
       throw Exception('Failed to update note: ${e.toString()}');
     }
   }
 
   /// Delete a note
-  Future<void> deleteNote(String userId, String noteId) async {
+  /// Uses currently authenticated user from Firebase Auth
+  Future<void> deleteNote(String noteId) async {
     try {
-      await getUserNotesCollection(userId).doc(noteId).delete();
+      await _getUserNotesCollection().doc(noteId).delete();
     } catch (e) {
       throw Exception('Failed to delete note: ${e.toString()}');
     }
   }
 
   /// Get a single note by ID
-  Future<Map<String, dynamic>?> getNote(
-    String userId,
-    String noteId,
-  ) async {
+  /// Uses currently authenticated user from Firebase Auth
+  Future<Map<String, dynamic>?> getNote(String noteId) async {
     try {
-      final doc = await getUserNotesCollection(userId).doc(noteId).get();
+      final doc = await _getUserNotesCollection().doc(noteId).get();
       return doc.data();
     } catch (e) {
       throw Exception('Failed to fetch note: ${e.toString()}');
     }
   }
 
-  /// Get all notes for a user
-  Stream<QuerySnapshot<Map<String, dynamic>>> getAllNotes(String userId) {
+  /// Get all notes for the currently authenticated user
+  /// Uses currently authenticated user from Firebase Auth
+  Stream<QuerySnapshot<Map<String, dynamic>>> getAllNotes() {
     try {
-      return getUserNotesCollection(userId)
+      return _getUserNotesCollection()
           .orderBy('createdAt', descending: true)
           .snapshots();
     } catch (e) {
@@ -81,12 +90,11 @@ class FirestoreService {
     }
   }
 
-  /// Get notes sorted by date (latest first)
-  Stream<QuerySnapshot<Map<String, dynamic>>> getNotesSortedByDate(
-    String userId,
-  ) {
+  /// Get notes sorted by date (latest first) for the currently authenticated user
+  /// Uses currently authenticated user from Firebase Auth
+  Stream<QuerySnapshot<Map<String, dynamic>>> getNotesSortedByDate() {
     try {
-      return getUserNotesCollection(userId)
+      return _getUserNotesCollection()
           .orderBy('createdAt', descending: true)
           .snapshots();
     } catch (e) {

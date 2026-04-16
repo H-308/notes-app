@@ -3,6 +3,7 @@ import 'package:notes_app/models/note.dart';
 import 'package:notes_app/features/note_editor/note_editor_repository.dart';
 
 /// Implementation of NoteEditorRepository
+/// Uses FirestoreService which retrieves UID from Firebase Auth internally
 class NoteEditorRepositoryImpl implements NoteEditorRepository {
   final FirestoreService _firestoreService;
 
@@ -11,8 +12,8 @@ class NoteEditorRepositoryImpl implements NoteEditorRepository {
   @override
   Future<String> createNote(Note note) async {
     try {
-      final noteId = await _firestoreService.addNote(note.userId, note.toMap());
-      return noteId;
+      await _firestoreService.addNote(note.toMap());
+      return note.id;
     } catch (e) {
       throw Exception('Failed to create note: ${e.toString()}');
     }
@@ -21,25 +22,25 @@ class NoteEditorRepositoryImpl implements NoteEditorRepository {
   @override
   Future<void> updateNote(Note note) async {
     try {
-      await _firestoreService.updateNote(note.userId, note.id, note.toMap());
+      await _firestoreService.updateNote(note.id, note.toMap());
     } catch (e) {
       throw Exception('Failed to update note: ${e.toString()}');
     }
   }
 
   @override
-  Future<void> deleteNote(String userId, String noteId) async {
+  Future<void> deleteNote(String noteId) async {
     try {
-      await _firestoreService.deleteNote(userId, noteId);
+      await _firestoreService.deleteNote(noteId);
     } catch (e) {
       throw Exception('Failed to delete note: ${e.toString()}');
     }
   }
 
   @override
-  Future<Note?> getNote(String userId, String noteId) async {
+  Future<Note?> getNote(String noteId) async {
     try {
-      final noteMap = await _firestoreService.getNote(userId, noteId);
+      final noteMap = await _firestoreService.getNote(noteId);
       if (noteMap != null) {
         return Note.fromMap(noteMap, noteId);
       }

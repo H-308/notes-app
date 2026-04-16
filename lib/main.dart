@@ -44,48 +44,21 @@ class _MainScreenState extends State<MainScreen> {
       ),
       NotesMapPage(onMarkerTapped: _handleMarkerTapped),
     ];
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final authState = context.read<AuthStateNotifier>();
-      final userEmail = authState.currentUser?.email ?? 'User';
-
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Welcome!'),
-            content: Text('Welcome, $userEmail!'),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
-          );
-        },
-      );
-    });
   }
 
   void _handleCreateNote() {
-    Provider.of<NoteEditorNotifier>(context, listen: false).reset();
-    setState(() {
-      _selectedNoteId = null;
-    });
+    context.read<NoteEditorNotifier>().reset();
+    setState(() => _selectedNoteId = null);
     _navigateToEditor();
   }
 
   void _handleNoteSelected(String noteId) {
-    setState(() {
-      _selectedNoteId = noteId;
-    });
+    setState(() => _selectedNoteId = noteId);
     _navigateToEditor();
   }
 
   void _handleMarkerTapped(String noteId) {
-    setState(() {
-      _selectedNoteId = noteId;
-    });
+    setState(() => _selectedNoteId = noteId);
     _navigateToEditor();
   }
 
@@ -95,9 +68,7 @@ class _MainScreenState extends State<MainScreen> {
         builder: (context) => NoteEditorPage(
           noteId: _selectedNoteId,
           onSave: () {
-            setState(() {
-              _selectedNoteId = null;
-            });
+            setState(() => _selectedNoteId = null);
           },
         ),
       ),
@@ -109,48 +80,32 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Notes'),
-        elevation: 0,
         centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {
-              context.read<AuthStateNotifier>().signOut();
-            },
+            onPressed: () => context.read<AuthStateNotifier>().signOut(),
           ),
         ],
       ),
-      body: _pages[_currentIndex],
+      body: IndexedStack(index: _currentIndex, children: _pages),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+        onTap: (index) => setState(() => _currentIndex = index),
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.list_outlined),
-            activeIcon: Icon(Icons.list),
-            label: 'Notes',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.map_outlined),
-            activeIcon: Icon(Icons.map),
-            label: 'Map',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.list), label: 'Notes'),
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: 'Map'),
         ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _handleCreateNote,
-        tooltip: 'Create Note',
         child: const Icon(Icons.add),
       ),
     );
   }
 }
 
-/// Root widget that manages auth state
+/// Root widget that manages auth state and syncs providers
 class RootApp extends StatelessWidget {
   const RootApp({super.key});
 
@@ -161,28 +116,16 @@ class RootApp extends StatelessWidget {
         return StreamBuilder<dynamic>(
           stream: authProvider.authStateStream,
           builder: (context, snapshot) {
-            // Show loading while checking auth state
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const CircularProgressIndicator(),
-                      const SizedBox(height: 16),
-                      const Text('Loading...'),
-                    ],
-                  ),
-                ),
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
               );
             }
 
-            // User is authenticated
             if (snapshot.hasData && snapshot.data != null) {
               return const MainScreen();
             }
 
-            // User is not authenticated
             return const AuthScreen();
           },
         );
@@ -191,7 +134,6 @@ class RootApp extends StatelessWidget {
   }
 }
 
-/// Main application widget
 class NotesApp extends StatelessWidget {
   const NotesApp({super.key});
 
@@ -206,17 +148,15 @@ class NotesApp extends StatelessWidget {
   }
 }
 
-/// Entry point for the application
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
   } catch (e) {
-    debugPrint('Firebase initialization error: $e');
+    debugPrint('Firebase Error: $e');
   }
 
   runApp(
@@ -227,19 +167,16 @@ Future<void> main() async {
             AuthRepositoryImpl(AuthRemoteDataSource(FirebaseAuthService())),
           ),
         ),
-
         ChangeNotifierProvider(
           create: (_) =>
               NotesListNotifier(NotesListRepositoryImpl(FirestoreService())),
         ),
-
         ChangeNotifierProvider(
           create: (_) => NoteEditorNotifier(
             NoteEditorRepositoryImpl(FirestoreService()),
-            LocationService(), // ודאי שייבאת את ה-LocationService
+            LocationService(),
           ),
         ),
-
         ChangeNotifierProvider(
           create: (_) =>
               NotesMapNotifier(NotesMapRepositoryImpl(FirestoreService())),

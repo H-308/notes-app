@@ -4,6 +4,7 @@ import 'package:notes_app/config/theme/app_theme.dart';
 import 'package:notes_app/models/note.dart';
 
 /// Note item card widget
+/// Always const to prevent unnecessary rebuilds when parent rebuilds
 class NoteItemCard extends StatelessWidget {
   final Note note;
   final VoidCallback onTap;
@@ -59,23 +60,18 @@ class NoteItemCard extends StatelessWidget {
                     const SizedBox(height: AppTheme.spacingMd),
 
                     // Image preview if exists
-                    if (note.imageUrl != null)
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          bottom: AppTheme.spacingSm,
-                        ),
+                    if (note.imageBase64 != null)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: AppTheme.spacingSm),
                         child: Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.image_outlined,
                               size: 16,
                               color: AppTheme.textSecondaryColor,
                             ),
-                            const SizedBox(width: AppTheme.spacingSm),
-                            const Text(
-                              'Image attached',
-                              style: AppTheme.bodySmall,
-                            ),
+                            SizedBox(width: AppTheme.spacingSm),
+                            Text('Image attached', style: AppTheme.bodySmall),
                           ],
                         ),
                       ),
@@ -122,7 +118,7 @@ class NoteItemCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: AppTheme.errorColor.withOpacity(0.1),
+                        color: AppTheme.errorColor.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: const Icon(
@@ -158,7 +154,7 @@ class EmptyNotesWidget extends StatelessWidget {
             Icon(
               Icons.note_outlined,
               size: 80,
-              color: AppTheme.textSecondaryColor.withOpacity(0.3),
+              color: AppTheme.textSecondaryColor.withValues(alpha: 0.3),
             ),
             const SizedBox(height: AppTheme.spacingMd),
             const Text(

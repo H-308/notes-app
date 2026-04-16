@@ -9,7 +9,7 @@ class Note {
   final double longitude;
   final DateTime createdAt;
   final DateTime? updatedAt;
-  final String? imageUrl;
+  final String? imageBase64;
   final String userId;
 
   const Note({
@@ -20,7 +20,7 @@ class Note {
     required this.longitude,
     required this.createdAt,
     this.updatedAt,
-    this.imageUrl,
+    this.imageBase64,
     required this.userId,
   });
 
@@ -34,16 +34,40 @@ class Note {
       'longitude': longitude,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : null,
-      'imageUrl': imageUrl,
+      'imageBase64': imageBase64,
       'userId': userId,
     };
   }
 
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Note &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          title == other.title &&
+          body == other.body &&
+          latitude == other.latitude &&
+          longitude == other.longitude &&
+          createdAt == other.createdAt &&
+          updatedAt == other.updatedAt &&
+          imageBase64 == other.imageBase64 &&
+          userId == other.userId;
+
+  @override
+  int get hashCode =>
+      id.hashCode ^
+      title.hashCode ^
+      body.hashCode ^
+      latitude.hashCode ^
+      longitude.hashCode ^
+      createdAt.hashCode ^
+      updatedAt.hashCode ^
+      imageBase64.hashCode ^
+      userId.hashCode;
+
   /// Create Note from Firestore document
-  factory Note.fromMap(
-    Map<String, dynamic> map,
-    String docId,
-  ) {
+  factory Note.fromMap(Map<String, dynamic> map, String docId) {
     return Note(
       id: docId,
       title: map['title'] as String? ?? '',
@@ -52,7 +76,7 @@ class Note {
       longitude: (map['longitude'] as num?)?.toDouble() ?? 0.0,
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (map['updatedAt'] as Timestamp?)?.toDate(),
-      imageUrl: map['imageUrl'] as String?,
+      imageBase64: map['imageBase64'] as String?,
       userId: map['userId'] as String? ?? '',
     );
   }
@@ -66,7 +90,7 @@ class Note {
     double? longitude,
     DateTime? createdAt,
     DateTime? updatedAt,
-    String? imageUrl,
+    String? imageBase64,
     String? userId,
   }) {
     return Note(
@@ -77,7 +101,7 @@ class Note {
       longitude: longitude ?? this.longitude,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      imageUrl: imageUrl ?? this.imageUrl,
+      imageBase64: imageBase64 ?? this.imageBase64,
       userId: userId ?? this.userId,
     );
   }
@@ -85,25 +109,4 @@ class Note {
   @override
   String toString() =>
       'Note(id: $id, title: $title, latitude: $latitude, longitude: $longitude)';
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Note &&
-          runtimeType == other.runtimeType &&
-          id == other.id &&
-          title == other.title &&
-          body == other.body &&
-          latitude == other.latitude &&
-          longitude == other.longitude &&
-          userId == other.userId;
-
-  @override
-  int get hashCode =>
-      id.hashCode ^
-      title.hashCode ^
-      body.hashCode ^
-      latitude.hashCode ^
-      longitude.hashCode ^
-      userId.hashCode;
 }
