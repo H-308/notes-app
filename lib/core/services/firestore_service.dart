@@ -29,7 +29,6 @@ class FirestoreService {
   /// Uses internal UID retrieval - never relies on passed parameters
   CollectionReference<Map<String, dynamic>> _getUserNotesCollection() {
     final String uid = _getCurrentUID();
-    print("DEBUG: Accessing Firestore path: users/$uid/notes");
     return _firebaseFirestore
         .collection(AppConstants.usersCollection)
         .doc(uid)
